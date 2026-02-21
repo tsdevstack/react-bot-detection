@@ -1,0 +1,68 @@
+{
+  "name": "@tsdevstack/react-bot-detection",
+  "version": "0.1.0",
+  "description": "React hooks and components for bot detection using behavioral analysis and honeypot fields",
+  "private": false,
+  "license": "MIT",
+  "author": "tsdevstack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsdevstack/react-bot-detection"
+  },
+  "bugs": {
+    "url": "https://github.com/tsdevstack/react-bot-detection/issues"
+  },
+  "homepage": "https://github.com/tsdevstack/react-bot-detection#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "react",
+    "bot-detection",
+    "honeypot",
+    "form-protection",
+    "anti-spam",
+    "behavioral-analysis",
+    "security"
+  ],
+  "scripts": {
+    "build": "rslib build",
+    "dev": "rslib build --watch",
+    "format": "prettier --write .",
+    "lint": "eslint .",
+    "test": "rstest run",
+    "test:watch": "rstest",
+    "tsc": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@rsbuild/plugin-react": "^1.4.2",
+    "@rslib/core": "^0.19.1",
+    "@rstest/adapter-rslib": "^0.2.0",
+    "@rstest/core": "^0.8.5",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.1",
+    "@types/react": "^19.2.7",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "jsdom": "^26.1.0",
+    "prettier": "^3.7.3",
+    "react": "^19.2.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  }
+}
