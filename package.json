@@ -1,6 +1,6 @@
 {
   "name": "@tsdevstack/react-bot-detection",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "description": "React hooks and components for bot detection using behavioral analysis and honeypot fields",
   "private": false,
   "license": "MIT",
