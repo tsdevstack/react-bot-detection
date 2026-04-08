@@ -309,6 +309,10 @@ Bot detection is one layer. Also implement:
 
 ---
 
+## Community
+
+Join the Discord: [discord.gg/2EMFkqc8QR](https://discord.gg/2EMFkqc8QR)
+
 ## License
 
 MIT
