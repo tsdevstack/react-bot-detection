@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "rootDir": "./src",
     "lib": ["DOM", "ES2022"],
     "module": "ESNext",
     "jsx": "react-jsx",
