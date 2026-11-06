@@ -2,12 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { BotDetectionResult, BotDetectionStats } from '../types';
-
-interface MouseMovement {
-  x: number;
-  y: number;
-  timestamp: number;
-}
+import {
+  MAX_POINTER_MOVES,
+  MIN_FOCUS_EVENTS,
+  MIN_POINTER_MOVES,
+} from '../constants';
 
 interface TypingPattern {
   key: string;
@@ -15,28 +14,36 @@ interface TypingPattern {
   timeSinceLastKey: number;
 }
 
+export interface AnalyzeBehaviorOptions {
+  /**
+   * Number of fields in the form. A one-field form needs one focus
+   * event; any other form needs two (default: 2).
+   */
+  fieldCount?: number;
+}
+
 export interface UseBotDetectionReturn {
   botScore: number;
   detectionReasons: string[];
   isBot: boolean;
-  analyzeBehavior: () => BotDetectionResult;
+  analyzeBehavior: (options?: AnalyzeBehaviorOptions) => BotDetectionResult;
   handleFieldFocus: () => void;
-  handleFormSubmit: () => BotDetectionResult;
+  handleFormSubmit: (options?: AnalyzeBehaviorOptions) => BotDetectionResult;
   stats: BotDetectionStats;
 }
 
 /**
  * Hook for behavioral bot detection.
  *
- * Tracks mouse movements, typing patterns, and form interactions
- * to detect automated form submissions.
+ * Tracks pointer activity (mouse, touch, pen), typing patterns, and form
+ * interactions to detect automated form submissions.
  *
  * @example
  * ```tsx
  * const { handleFormSubmit, isBot } = useBotDetection();
  *
  * const onSubmit = () => {
- *   const result = handleFormSubmit();
+ *   const result = handleFormSubmit({ fieldCount: 1 });
  *   if (result.isBot) {
  *     console.log('Bot detected:', result.reasons);
  *     return;
@@ -50,9 +57,10 @@ export function useBotDetection(): UseBotDetectionReturn {
   const [detectionReasons, setDetectionReasons] = useState<string[]>([]);
   const [formStartTime] = useState(Date.now());
 
-  // Mouse tracking
-  const mouseMovements = useRef<MouseMovement[]>([]);
-  const [hasMouseMovement, setHasMouseMovement] = useState(false);
+  // Pointer tracking: moves of a mouse, and touches or pen taps (phones
+  // and tablets send no mouse moves)
+  const pointerMoves = useRef(0);
+  const hasTouch = useRef(false);
 
   // Typing tracking
   const typingPatterns = useRef<TypingPattern[]>([]);
@@ -61,20 +69,16 @@ export function useBotDetection(): UseBotDetectionReturn {
   // Form interaction tracking
   const [focusEvents, setFocusEvents] = useState(0);
 
-  // Mouse movement detection
-  const trackMouseMovement = useCallback((e: MouseEvent) => {
-    const movement: MouseMovement = {
-      x: e.clientX,
-      y: e.clientY,
-      timestamp: Date.now(),
-    };
+  const trackPointerMove = useCallback(() => {
+    pointerMoves.current = Math.min(
+      pointerMoves.current + 1,
+      MAX_POINTER_MOVES,
+    );
+  }, []);
 
-    mouseMovements.current.push(movement);
-    setHasMouseMovement(true);
-
-    // Keep only last 50 movements
-    if (mouseMovements.current.length > 50) {
-      mouseMovements.current.shift();
+  const trackPointerDown = useCallback((e: PointerEvent) => {
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      hasTouch.current = true;
     }
   }, []);
 
@@ -100,126 +104,125 @@ export function useBotDetection(): UseBotDetectionReturn {
 
   // Setup event listeners
   useEffect(() => {
-    document.addEventListener('mousemove', trackMouseMovement);
+    document.addEventListener('pointermove', trackPointerMove);
+    document.addEventListener('pointerdown', trackPointerDown);
     document.addEventListener('keydown', trackKeyPress);
 
     return () => {
-      document.removeEventListener('mousemove', trackMouseMovement);
+      document.removeEventListener('pointermove', trackPointerMove);
+      document.removeEventListener('pointerdown', trackPointerDown);
       document.removeEventListener('keydown', trackKeyPress);
     };
-  }, [trackMouseMovement, trackKeyPress]);
+  }, [trackPointerMove, trackPointerDown, trackKeyPress]);
 
   // Analyze bot behavior
-  const analyzeBehavior = useCallback((): BotDetectionResult => {
-    let score = 0;
-    const reasons: string[] = [];
+  const analyzeBehavior = useCallback(
+    (options: AnalyzeBehaviorOptions = {}): BotDetectionResult => {
+      let score = 0;
+      const reasons: string[] = [];
 
-    // 1. Check mouse movements
-    if (!hasMouseMovement || mouseMovements.current.length < 5) {
-      score += 30;
-      reasons.push('No natural mouse movement detected');
-    } else {
-      // Check for unnatural mouse patterns (perfectly straight lines, etc.)
-      const movements = mouseMovements.current.slice(-20);
-      const variations = movements.map((m, i) => {
-        if (i === 0) return 0;
-        const prev = movements[i - 1];
-        return Math.abs(m.x - prev.x) + Math.abs(m.y - prev.y);
-      });
-
-      const avgVariation =
-        variations.reduce((a, b) => a + b, 0) / variations.length;
-      if (avgVariation < 5) {
-        score += 20;
-        reasons.push('Unnatural mouse movement patterns');
+      // 1. Check pointer activity: a mouse that moved, or a touch or pen
+      if (!hasTouch.current && pointerMoves.current < MIN_POINTER_MOVES) {
+        score += 30;
+        reasons.push('No natural pointer activity detected');
       }
-    }
 
-    // 2. Check typing patterns
-    if (typingPatterns.current.length > 10) {
-      const intervals = typingPatterns.current
-        .slice(-20)
-        .map((p) => p.timeSinceLastKey)
-        .filter((t) => t > 0 && t < 1000); // Filter reasonable intervals
+      // 2. Check typing patterns
+      if (typingPatterns.current.length > 10) {
+        const intervals = typingPatterns.current
+          .slice(-20)
+          .map((p) => p.timeSinceLastKey)
+          .filter((t) => t > 0 && t < 1000); // Filter reasonable intervals
 
-      if (intervals.length > 5) {
-        const avgInterval =
-          intervals.reduce((a, b) => a + b, 0) / intervals.length;
-        const variance =
-          intervals.reduce((acc, interval) => {
-            return acc + Math.pow(interval - avgInterval, 2);
-          }, 0) / intervals.length;
+        if (intervals.length > 5) {
+          const avgInterval =
+            intervals.reduce((a, b) => a + b, 0) / intervals.length;
+          const variance =
+            intervals.reduce((acc, interval) => {
+              return acc + Math.pow(interval - avgInterval, 2);
+            }, 0) / intervals.length;
 
-        // Very consistent typing (low variance) is suspicious
-        if (variance < 100) {
-          score += 15;
-          reasons.push('Unnaturally consistent typing pattern');
-        }
+          // Very consistent typing (low variance) is suspicious
+          if (variance < 100) {
+            score += 15;
+            reasons.push('Unnaturally consistent typing pattern');
+          }
 
-        // Extremely fast typing (under 50ms average) is suspicious
-        if (avgInterval < 50) {
-          score += 20;
-          reasons.push('Superhuman typing speed detected');
+          // Extremely fast typing (under 50ms average) is suspicious
+          if (avgInterval < 50) {
+            score += 20;
+            reasons.push('Superhuman typing speed detected');
+          }
         }
       }
-    }
 
-    // 3. Check form filling speed
-    const currentTime = Date.now();
-    const totalTime = currentTime - formStartTime;
+      // 3. Check form filling speed
+      const currentTime = Date.now();
+      const totalTime = currentTime - formStartTime;
 
-    if (totalTime < 2000) {
-      // Less than 2 seconds
-      score += 40;
-      reasons.push('Form filled too quickly');
-    }
+      if (totalTime < 2000) {
+        // Less than 2 seconds
+        score += 40;
+        reasons.push('Form filled too quickly');
+      }
 
-    // 4. Check focus events (humans typically focus multiple times)
-    if (focusEvents < 2) {
-      score += 15;
-      reasons.push('Insufficient focus interactions');
-    }
+      // 4. Check focus events: one per field, up to two (a person focuses
+      // the field they fill)
+      const fieldCount = options.fieldCount ?? MIN_FOCUS_EVENTS;
+      const requiredFocusEvents = Math.max(
+        1,
+        Math.min(fieldCount, MIN_FOCUS_EVENTS),
+      );
+      if (focusEvents < requiredFocusEvents) {
+        score += 15;
+        reasons.push('Insufficient focus interactions');
+      }
 
-    // 5. Check browser features
-    if (typeof navigator !== 'undefined' && navigator.webdriver === true) {
-      score += 25;
-      reasons.push('Automated browser detected');
-    }
+      // 5. Check browser features
+      if (typeof navigator !== 'undefined' && navigator.webdriver === true) {
+        score += 25;
+        reasons.push('Automated browser detected');
+      }
 
-    // 6. Check for headless browser indicators
-    if (
-      typeof window !== 'undefined' &&
-      (window.outerWidth === 0 || window.outerHeight === 0)
-    ) {
-      score += 35;
-      reasons.push('Headless browser indicators');
-    }
+      // 6. Check for headless browser indicators
+      if (
+        typeof window !== 'undefined' &&
+        (window.outerWidth === 0 || window.outerHeight === 0)
+      ) {
+        score += 35;
+        reasons.push('Headless browser indicators');
+      }
 
-    return {
-      score,
-      reasons,
-      isBot: score >= 50,
-      stats: {
-        mouseMovements: mouseMovements.current.length,
-        typingEvents: typingPatterns.current.length,
-        focusEvents,
-        timeSpent: Date.now() - formStartTime,
-      },
-      honeypotTriggered: false,
-    };
-  }, [hasMouseMovement, focusEvents, formStartTime]);
+      return {
+        score,
+        reasons,
+        isBot: score >= 50,
+        stats: {
+          mouseMovements: pointerMoves.current,
+          typingEvents: typingPatterns.current.length,
+          focusEvents,
+          timeSpent: Date.now() - formStartTime,
+        },
+        honeypotTriggered: false,
+      };
+    },
+    [focusEvents, formStartTime],
+  );
 
   // Form field handlers
   const handleFieldFocus = useCallback(() => {
     setFocusEvents((prev) => prev + 1);
   }, []);
 
-  const handleFormSubmit = useCallback(() => {
-    const result = analyzeBehavior();
-    setBotScore(result.score);
-    setDetectionReasons(result.reasons);
-    return result;
-  }, [analyzeBehavior]);
+  const handleFormSubmit = useCallback(
+    (options?: AnalyzeBehaviorOptions) => {
+      const result = analyzeBehavior(options);
+      setBotScore(result.score);
+      setDetectionReasons(result.reasons);
+      return result;
+    },
+    [analyzeBehavior],
+  );
 
   return {
     botScore,
@@ -229,7 +232,7 @@ export function useBotDetection(): UseBotDetectionReturn {
     handleFieldFocus,
     handleFormSubmit,
     stats: {
-      mouseMovements: mouseMovements.current.length,
+      mouseMovements: pointerMoves.current,
       typingEvents: typingPatterns.current.length,
       focusEvents,
       timeSpent: Date.now() - formStartTime,

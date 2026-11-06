@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useBotDetection } from '../hooks/use-bot-detection';
 import { useHoneypot } from '../hooks/use-honeypot';
 import type { BotDetectionResult, ButtonComponentProps } from '../types';
+import { FIELD_SELECTOR } from '../constants';
 
 /**
  * Default button component - a simple styled HTML button.
@@ -83,6 +84,8 @@ export function BotProtectedForm({
 }: BotProtectedFormProps): React.ReactElement {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  // The form's own fields (the honeypot is outside them)
+  const fieldsRef = useRef<HTMLDivElement>(null);
 
   const {
     botScore,
@@ -106,8 +109,10 @@ export function BotProtectedForm({
       setIsSubmitting(true);
 
       try {
-        // Run behavioral analysis
-        const behaviorResult = handleFormSubmit();
+        // Run behavioral analysis (a one-field form needs one focus)
+        const fieldCount =
+          fieldsRef.current?.querySelectorAll(FIELD_SELECTOR).length;
+        const behaviorResult = handleFormSubmit({ fieldCount });
 
         // Check all bot detection methods
         const finalBotScore =
@@ -121,7 +126,7 @@ export function BotProtectedForm({
           score: finalBotScore,
           reasons: allReasons,
           isBot: finalBotScore >= 50 || honeypotTriggered,
-          stats,
+          stats: behaviorResult.stats,
           honeypotTriggered,
         };
 
@@ -141,7 +146,7 @@ export function BotProtectedForm({
         setIsSubmitting(false);
       }
     },
-    [handleFormSubmit, honeypotTriggered, onBotDetected, onSubmit, stats]
+    [handleFormSubmit, honeypotTriggered, onBotDetected, onSubmit],
   );
 
   return (
@@ -150,14 +155,12 @@ export function BotProtectedForm({
       <HoneypotComponent />
 
       {/* Enhanced form fields with focus tracking */}
-      <div onFocus={handleFieldFocus}>{children}</div>
+      <div ref={fieldsRef} onFocus={handleFieldFocus}>
+        {children}
+      </div>
 
       {/* Submit button */}
-      <ButtonComponent
-        type="submit"
-        disabled={isSubmitting}
-        className="w-full"
-      >
+      <ButtonComponent type="submit" disabled={isSubmitting} className="w-full">
         {isSubmitting ? loadingButtonText : submitButtonText}
       </ButtonComponent>
 
@@ -188,7 +191,7 @@ export function BotProtectedForm({
                   stats,
                 },
                 null,
-                2
+                2,
               )}
             </pre>
           </details>

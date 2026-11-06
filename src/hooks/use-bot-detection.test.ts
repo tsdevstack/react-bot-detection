@@ -83,7 +83,52 @@ describe('useBotDetection', () => {
       );
     });
 
-    it('should detect no mouse movement', () => {
+    it('should need one focus event on a one-field form', () => {
+      const { result } = renderHook(() => useBotDetection());
+
+      rs.advanceTimersByTime(3000);
+      act(() => {
+        result.current.handleFieldFocus();
+      });
+
+      const analysisResult = result.current.analyzeBehavior({ fieldCount: 1 });
+
+      expect(analysisResult.reasons).not.toContain(
+        'Insufficient focus interactions',
+      );
+    });
+
+    it('should need two focus events on a form with more fields', () => {
+      const { result } = renderHook(() => useBotDetection());
+
+      rs.advanceTimersByTime(3000);
+      act(() => {
+        result.current.handleFieldFocus();
+      });
+
+      const analysisResult = result.current.analyzeBehavior({ fieldCount: 4 });
+
+      expect(analysisResult.reasons).toContain(
+        'Insufficient focus interactions',
+      );
+    });
+
+    it('should need two focus events when the field count is unknown', () => {
+      const { result } = renderHook(() => useBotDetection());
+
+      rs.advanceTimersByTime(3000);
+      act(() => {
+        result.current.handleFieldFocus();
+      });
+
+      const analysisResult = result.current.analyzeBehavior();
+
+      expect(analysisResult.reasons).toContain(
+        'Insufficient focus interactions',
+      );
+    });
+
+    it('should detect no pointer activity', () => {
       const { result } = renderHook(() => useBotDetection());
 
       // Advance time to avoid fast submission penalty
@@ -92,7 +137,7 @@ describe('useBotDetection', () => {
       const analysisResult = result.current.analyzeBehavior();
 
       expect(analysisResult.reasons).toContain(
-        'No natural mouse movement detected',
+        'No natural pointer activity detected',
       );
     });
 
@@ -144,12 +189,16 @@ describe('useBotDetection', () => {
   });
 
   describe('event listeners', () => {
-    it('should set up mousemove listener', () => {
+    it('should set up pointer listeners (mouse, touch and pen)', () => {
       const addEventListenerSpy = rs.spyOn(document, 'addEventListener');
       renderHook(() => useBotDetection());
 
       expect(addEventListenerSpy).toHaveBeenCalledWith(
-        'mousemove',
+        'pointermove',
+        expect.any(Function),
+      );
+      expect(addEventListenerSpy).toHaveBeenCalledWith(
+        'pointerdown',
         expect.any(Function),
       );
       addEventListenerSpy.mockRestore();
@@ -173,7 +222,11 @@ describe('useBotDetection', () => {
       unmount();
 
       expect(removeEventListenerSpy).toHaveBeenCalledWith(
-        'mousemove',
+        'pointermove',
+        expect.any(Function),
+      );
+      expect(removeEventListenerSpy).toHaveBeenCalledWith(
+        'pointerdown',
         expect.any(Function),
       );
       expect(removeEventListenerSpy).toHaveBeenCalledWith(
@@ -184,7 +237,7 @@ describe('useBotDetection', () => {
     });
   });
 
-  describe('mouse movement tracking', () => {
+  describe('pointer tracking', () => {
     it('should track mouse movements and update stats', () => {
       const { result } = renderHook(() => useBotDetection());
 
@@ -192,7 +245,10 @@ describe('useBotDetection', () => {
       for (let i = 0; i < 10; i++) {
         act(() => {
           document.dispatchEvent(
-            new MouseEvent('mousemove', { clientX: i * 50, clientY: i * 30 }),
+            new PointerEvent('pointermove', {
+              clientX: i * 50,
+              clientY: i * 30,
+            }),
           );
         });
       }
@@ -209,7 +265,7 @@ describe('useBotDetection', () => {
       for (let i = 0; i < 10; i++) {
         act(() => {
           document.dispatchEvent(
-            new MouseEvent('mousemove', {
+            new PointerEvent('pointermove', {
               clientX: i * 50 + Math.random() * 20,
               clientY: i * 30 + Math.random() * 20,
             }),
@@ -229,29 +285,82 @@ describe('useBotDetection', () => {
       const analysisResult = result.current.analyzeBehavior();
 
       expect(analysisResult.reasons).not.toContain(
-        'No natural mouse movement detected',
+        'No natural pointer activity detected',
       );
     });
 
-    it('should detect unnatural mouse patterns with low variation', () => {
+    it('should accept small, slow mouse steps (a careful hand)', () => {
       const { result } = renderHook(() => useBotDetection());
 
-      // Simulate unnatural mouse movements (very small variations)
       for (let i = 0; i < 10; i++) {
         act(() => {
           document.dispatchEvent(
-            new MouseEvent('mousemove', { clientX: 100 + i, clientY: 100 + i }),
+            new PointerEvent('pointermove', {
+              clientX: 100 + i,
+              clientY: 100 + i,
+            }),
           );
         });
       }
 
-      // Advance time to avoid fast submission penalty
+      rs.advanceTimersByTime(3000);
+
+      const analysisResult = result.current.analyzeBehavior();
+
+      expect(analysisResult.score).toBe(15);
+      expect(analysisResult.reasons).toEqual([
+        'Insufficient focus interactions',
+      ]);
+    });
+
+    it('should count a touch as pointer activity (phones send no mouse moves)', () => {
+      const { result } = renderHook(() => useBotDetection());
+
+      act(() => {
+        document.dispatchEvent(
+          new PointerEvent('pointerdown', { pointerType: 'touch' }),
+        );
+      });
+      rs.advanceTimersByTime(3000);
+
+      const analysisResult = result.current.analyzeBehavior();
+
+      expect(analysisResult.reasons).not.toContain(
+        'No natural pointer activity detected',
+      );
+    });
+
+    it('should count a pen tap as pointer activity', () => {
+      const { result } = renderHook(() => useBotDetection());
+
+      act(() => {
+        document.dispatchEvent(
+          new PointerEvent('pointerdown', { pointerType: 'pen' }),
+        );
+      });
+      rs.advanceTimersByTime(3000);
+
+      const analysisResult = result.current.analyzeBehavior();
+
+      expect(analysisResult.reasons).not.toContain(
+        'No natural pointer activity detected',
+      );
+    });
+
+    it('should not count a mouse click without moves as pointer activity', () => {
+      const { result } = renderHook(() => useBotDetection());
+
+      act(() => {
+        document.dispatchEvent(
+          new PointerEvent('pointerdown', { pointerType: 'mouse' }),
+        );
+      });
       rs.advanceTimersByTime(3000);
 
       const analysisResult = result.current.analyzeBehavior();
 
       expect(analysisResult.reasons).toContain(
-        'Unnatural mouse movement patterns',
+        'No natural pointer activity detected',
       );
     });
 
@@ -262,7 +371,10 @@ describe('useBotDetection', () => {
       for (let i = 0; i < 60; i++) {
         act(() => {
           document.dispatchEvent(
-            new MouseEvent('mousemove', { clientX: i * 10, clientY: i * 10 }),
+            new PointerEvent('pointermove', {
+              clientX: i * 10,
+              clientY: i * 10,
+            }),
           );
         });
       }
@@ -308,7 +420,7 @@ describe('useBotDetection', () => {
       for (let i = 0; i < 10; i++) {
         act(() => {
           document.dispatchEvent(
-            new MouseEvent('mousemove', {
+            new PointerEvent('pointermove', {
               clientX: i * 50 + Math.random() * 30,
               clientY: i * 30 + Math.random() * 30,
             }),
@@ -345,7 +457,7 @@ describe('useBotDetection', () => {
       for (let i = 0; i < 10; i++) {
         act(() => {
           document.dispatchEvent(
-            new MouseEvent('mousemove', {
+            new PointerEvent('pointermove', {
               clientX: i * 50 + Math.random() * 30,
               clientY: i * 30 + Math.random() * 30,
             }),
@@ -401,7 +513,7 @@ describe('useBotDetection', () => {
       for (let i = 0; i < 10; i++) {
         act(() => {
           document.dispatchEvent(
-            new MouseEvent('mousemove', {
+            new PointerEvent('pointermove', {
               clientX: i * 50 + Math.random() * 30,
               clientY: i * 30 + Math.random() * 30,
             }),
@@ -500,7 +612,7 @@ describe('useBotDetection', () => {
       for (let i = 0; i < 15; i++) {
         act(() => {
           document.dispatchEvent(
-            new MouseEvent('mousemove', {
+            new PointerEvent('pointermove', {
               clientX: i * 40 + Math.random() * 50,
               clientY: i * 25 + Math.random() * 40,
             }),
@@ -530,6 +642,70 @@ describe('useBotDetection', () => {
 
       expect(analysisResult.isBot).toBe(false);
       expect(analysisResult.score).toBeLessThan(50);
+    });
+
+    it('should pass a person who pastes an email and submits within a second', () => {
+      const { result } = renderHook(() => useBotDetection());
+
+      // Small, slow mouse steps towards the field
+      for (let i = 0; i < 18; i++) {
+        act(() => {
+          document.dispatchEvent(
+            new PointerEvent('pointermove', {
+              clientX: 300 + i * 2,
+              clientY: 200 + i,
+            }),
+          );
+        });
+      }
+      act(() => {
+        result.current.handleFieldFocus();
+      });
+      // Cmd+V
+      act(() => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Meta' }));
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+      });
+      rs.advanceTimersByTime(1068);
+
+      const analysisResult = result.current.analyzeBehavior({ fieldCount: 1 });
+
+      expect(analysisResult.reasons).toEqual(['Form filled too quickly']);
+      expect(analysisResult.score).toBe(40);
+      expect(analysisResult.isBot).toBe(false);
+    });
+
+    it('should pass a phone user who taps an autofilled email and submits', () => {
+      const { result } = renderHook(() => useBotDetection());
+
+      act(() => {
+        document.dispatchEvent(
+          new PointerEvent('pointerdown', { pointerType: 'touch' }),
+        );
+        result.current.handleFieldFocus();
+      });
+      rs.advanceTimersByTime(900);
+
+      const analysisResult = result.current.analyzeBehavior({ fieldCount: 1 });
+
+      expect(analysisResult.score).toBe(40);
+      expect(analysisResult.isBot).toBe(false);
+    });
+  });
+
+  describe('automated submissions', () => {
+    it('should block a script that fills a one-field form instantly', () => {
+      const { result } = renderHook(() => useBotDetection());
+
+      const analysisResult = result.current.analyzeBehavior({ fieldCount: 1 });
+
+      expect(analysisResult.reasons).toEqual([
+        'No natural pointer activity detected',
+        'Form filled too quickly',
+        'Insufficient focus interactions',
+      ]);
+      expect(analysisResult.score).toBe(85);
+      expect(analysisResult.isBot).toBe(true);
     });
   });
 });

@@ -4,7 +4,7 @@ React hooks and components for client-side bot detection using behavioral analys
 
 ## Features
 
-- **Behavioral Analysis** - Tracks mouse movements, typing patterns, and form interactions
+- **Behavioral Analysis** - Tracks pointer activity (mouse, touch, pen), typing patterns, and form interactions
 - **Honeypot Fields** - Hidden fields that bots typically fill out
 - **Zero Dependencies** - Only requires React as a peer dependency
 - **TypeScript** - Full type definitions included
@@ -107,7 +107,7 @@ interface UseBotDetectionReturn {
   detectionReasons: string[]; // Human-readable reasons
   isBot: boolean;             // true if score >= 50
   handleFieldFocus: () => void;  // Call on field focus
-  handleFormSubmit: () => BotDetectionResult;  // Call before submit
+  handleFormSubmit: (options?: { fieldCount?: number }) => BotDetectionResult;  // Call before submit
   stats: BotDetectionStats;   // Raw statistics
 }
 ```
@@ -123,7 +123,8 @@ function CustomForm() {
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
 
-    const result = handleFormSubmit();
+    // The form's field count: a one-field form needs one focus
+    const result = handleFormSubmit({ fieldCount: 1 });
     if (result.isBot) {
       console.log('Bot detected:', result.reasons);
       return;
@@ -225,7 +226,7 @@ interface BotDetectionResult {
 
 ```ts
 interface BotDetectionStats {
-  mouseMovements: number;  // Mouse events tracked
+  mouseMovements: number;  // Pointer moves tracked (mouse, touch, pen)
   typingEvents: number;    // Keystrokes tracked
   focusEvents: number;     // Focus events tracked
   timeSpent: number;       // Time on form (ms)
@@ -253,12 +254,11 @@ The `useBotDetection` hook tracks:
 
 | Signal | Score | Description |
 |--------|-------|-------------|
-| No mouse movement | +30 | Bots often don't move the mouse |
-| Unnatural mouse patterns | +20 | Perfectly straight lines, no variation |
+| No pointer activity | +30 | Fewer than 5 mouse moves and no touch or pen tap |
 | Consistent typing speed | +15 | Humans have variable typing rhythm |
 | Superhuman typing | +20 | < 50ms between keystrokes |
 | Fast form completion | +40 | < 2 seconds total time |
-| Few focus events | +15 | < 2 field interactions |
+| Few focus events | +15 | < 2 focus events (< 1 on a one-field form) |
 | WebDriver detected | +25 | `navigator.webdriver === true` |
 | Headless browser | +35 | Window size is 0 |
 

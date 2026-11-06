@@ -205,6 +205,60 @@ describe('BotProtectedForm', () => {
     });
   });
 
+  describe('Behavioral analysis input', () => {
+    it('should pass the number of its own fields (one focus is enough on a one-field form)', async () => {
+      const user = userEvent.setup();
+      const handleFormSubmit = rs.fn(() => ({ score: 0, reasons: [] }));
+      mockUseBotDetection.mockReturnValue({
+        ...mockUseBotDetection(),
+        handleFormSubmit,
+      });
+
+      render(
+        <BotProtectedForm onSubmit={mockOnSubmit}>
+          <input name="email" />
+          <input name="password" type="password" />
+          <input name="csrf" type="hidden" value="x" readOnly />
+        </BotProtectedForm>,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Submit' }));
+
+      expect(handleFormSubmit).toHaveBeenCalledWith({ fieldCount: 2 });
+    });
+
+    it('should report the stats measured at submit', async () => {
+      const user = userEvent.setup();
+      const submitStats = {
+        mouseMovements: 18,
+        typingEvents: 2,
+        focusEvents: 1,
+        timeSpent: 1068,
+      };
+      mockUseBotDetection.mockReturnValue({
+        ...mockUseBotDetection(),
+        handleFormSubmit: rs.fn(() => ({
+          score: 40,
+          reasons: ['Form filled too quickly'],
+          stats: submitStats,
+        })),
+      });
+
+      render(
+        <BotProtectedForm onSubmit={mockOnSubmit}>
+          <input name="email" />
+        </BotProtectedForm>,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Submit' }));
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledTimes(1);
+      });
+      expect(mockOnSubmit.mock.calls[0][1].stats).toEqual(submitStats);
+    });
+  });
+
   describe('Bot Detection Blocking', () => {
     it('should not call onSubmit when behavioral bot detection triggers', async () => {
       const user = userEvent.setup();
